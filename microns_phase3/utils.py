@@ -21,8 +21,8 @@ def get_grid(field_key, desired_res=1):
 
     # Apply required transform
     params = (nda.Registration & field_key).fetch1(
-        'a11', 'a21', 'a31', 
-        'a12', 'a22', 'a32', 
+        'a11', 'a21', 'a31',
+        'a12', 'a22', 'a32',
         'reg_x', 'reg_y', 'reg_z'
         )
     a11, a21, a31, a12, a22, a32, delta_x, delta_y, delta_z = params
@@ -72,15 +72,15 @@ def affine_product(X, A, b):
 
 
 def format_coords(coords_xyz, return_dim=1):
-    # format coordinates 
+    # format coordinates
     coords_xyz = np.array(coords_xyz)
-    
+
     assert return_dim==1 or return_dim==2, 'return_dim must be 1 or 2'
     assert coords_xyz.ndim == 1 or coords_xyz.ndim == 2, 'Coordinate(s) must be 1D or 2D'
     assert coords_xyz.shape[-1] == 3, 'Coordinate(s) must have exactly x, y, and z'
-    
+
     coords_xyz = coords_xyz if coords_xyz.ndim == return_dim else np.expand_dims(coords_xyz, 0)
-        
+
     return coords_xyz
 
 
@@ -90,7 +90,7 @@ def fetch_coreg(transform_id=None, transform_version=None, transform_direction=N
 
     :param transform_id: ID of desired transformation
     :param transform_version: "phase2" or "phase3"
-    :param transform_direction: 
+    :param transform_direction:
         "EM2P" --> provided coordinate is EM and output is 2P
         "2PEM" --> provided coordinate is 2P and output is EM
     :param transform_type:
@@ -99,7 +99,7 @@ def fetch_coreg(transform_id=None, transform_version=None, transform_direction=N
     :param as_dict (bool):
         True - returns dictionary
         False - returns tuple
-    
+
     Returns:
         dict or tuple of transform_id, transform_version, transform_direction, transform_type, transform_obj to pass to function coreg_transform
     """
@@ -110,37 +110,37 @@ def fetch_coreg(transform_id=None, transform_version=None, transform_direction=N
     if transform_type is not None:
         assert transform_type=='linear' or transform_type=='spline', "transform_version must be 'linear' or 'spline'"
 
-    
+
     # fetch desired transform solution
     tid_restr = [{'transform_id': transform_id} if transform_id is not None else {}]
     ver_restr = [{'version':transform_version} if transform_version is not None else {}]
     dir_restr = [{'direction': transform_direction} if transform_direction is not None else {}]
     type_restr = [{'transform_type': transform_type} if transform_type is not None else {}]
-        
+
     try:
         transform_id, transform_version, transform_direction, transform_type, transform_solution = (nda.Coregistration & tid_restr & ver_restr & dir_restr & type_restr).fetch1('transform_id','version', 'direction', 'transform_type', 'transform_solution')
     except dj.DataJointError:
         raise ValueError('Specified parameters fail to restrict to a single transformation')
-    
+
     # generate transformation object
     transform_obj = Transform(json=transform_solution)
-    
+
     if as_dict:
         return {'transform_id':transform_id, 'transform_version':transform_version,
                 'transform_direction': transform_direction, 'transform_type': transform_type, 'transform_obj': transform_obj}
     else:
         return transform_id, transform_version, transform_direction, transform_type, transform_obj
-    
+
 
 def coreg_transform(coords, transform_id=None, transform_version=None, transform_direction=None, transform_type=None, transform_obj=None):
     """ Transform provided coordinate according to parameters
-    
-    :param coordinates: 1D or 2D list or array of coordinates 
+
+    :param coordinates: 1D or 2D list or array of coordinates
         if coordinates are 2P, units should be microns
         if coordates are EM, units should be Neuroglancer voxels of the appropriate version
     :param transform_id: ID of desired transformation
     :param transform_version: "phase2" or "phase3"
-    :param transform_direction: 
+    :param transform_direction:
         "EM2P" --> provided coordinate is EM and output is 2P
         "2PEM" --> provided coordinate is 2P and output is EM
     :param transform_type:
@@ -148,21 +148,21 @@ def coreg_transform(coords, transform_id=None, transform_version=None, transform
         "spline" --> more rigid transform
     :param transform_obj: option to provide transform_obj
         If transform_obj is None, then it will be fetched using fetch_coreg function and provided transform paramaters
-    """ 
+    """
     if transform_version is not None:
         assert transform_version=='phase2' or transform_version=='phase3', "transform_version must be 'phase2' or 'phase3'"
     if transform_direction is not None:
         assert transform_direction=="EM2P" or transform_direction=="2PEM", "transform_direction must be 'EM2P' or '2PEM"
     if transform_type is not None:
         assert transform_type=='linear' or transform_type=='spline', "transform_version must be 'linear' or 'spline'"
-    
+
     # format coord
     coords_xyz = format_coords(coords, return_dim=2)
-    
+
     # fetch transformation object
     if transform_obj is None:
         transform_id, transform_version, transform_direction, transform_type, transform_obj = fetch_coreg(transform_id=transform_id, transform_version=transform_version, \
-                                    transform_direction=transform_direction, transform_type=transform_type, as_dict=False)    
+                                    transform_direction=transform_direction, transform_type=transform_type, as_dict=False)
     else:
         if transform_version is None or transform_direction is None:
             raise Exception('Using provided transformation object but still need to specify transform_version and transform_direction')
@@ -173,23 +173,23 @@ def coreg_transform(coords, transform_id=None, transform_version=None, transform
     if transform_version == 'phase2':
         if transform_direction == '2PEM':
             return (em_nm_to_voxels(transform_obj.tform(coords_xyz / 1000))).squeeze()
-        
+
         elif transform_direction == 'EM2P':
             return (transform_obj.tform(em_nm_to_voxels(coords_xyz, inverse=True))*1000).squeeze()
-        
+
         else:
             raise Exception('Provide transformation direction ("2PEM" or "EM2P")')
-        
+
     elif transform_version == 'phase3':
         if transform_direction == '2PEM':
             coords_xyz[:, 1] = 1322 - coords_xyz[:, 1] # phase 3 does not invert y so have to manually do it
             return transform_obj.tform(coords_xyz/1000).squeeze()
-        
+
         elif transform_direction == 'EM2P':
             new_coords = transform_obj.tform(coords_xyz) * 1000
             new_coords[:, 1] = 1322 - new_coords[:, 1] # phase 3 does not invert y so have to manually do it
             return new_coords.squeeze()
-        
+
         else:
             raise Exception('Provide transformation direction ("2PEM" or "EM2P")')
     else:
@@ -216,14 +216,14 @@ def get_all_masks(field_key, mask_type=None, plot=False):
     """Returns an image_height x image_width x num_masks matrix with all masks and plots the masks (optional).
     Args:
         field_key      (dict):        dictionary to uniquely identify a field (must contain the keys: "session", "scan_idx", "field")
-        mask_type      (str):         options: "soma" or "artifact". Specifies whether to restrict masks by classification. 
+        mask_type      (str):         options: "soma" or "artifact". Specifies whether to restrict masks by classification.
                                         soma: restricts to masks classified as soma
                                         artifact: restricts masks classified as artifacts
         plot           (bool):        specify whether to plot masks
-        
+
     Returns:
-        masks           (array):      array containing masks of dimensions image_height x image_width x num_masks  
-        
+        masks           (array):      array containing masks of dimensions image_height x image_width x num_masks
+
         if plot=True:
             matplotlib image    (array):        array of oracle responses interpolated to scan frequency: 10 repeats x 6 oracle clips x f response frames
     """
@@ -269,10 +269,10 @@ def get_all_masks(field_key, mask_type=None, plot=False):
 def fetch_oracle_raster(unit_key):
     """Fetches the responses of the provided unit to the oracle trials
     Args:
-        unit_key      (dict):        dictionary to uniquely identify a functional unit (must contain the keys: "session", "scan_idx", "unit_id") 
-        
+        unit_key      (dict):        dictionary to uniquely identify a functional unit (must contain the keys: "session", "scan_idx", "unit_id")
+
     Returns:
-        oracle_score (float):        
+        oracle_score (float):
         responses    (array):        array of oracle responses interpolated to scan frequency: 10 repeats x 6 oracle clips x f response frames
     """
     fps = (nda.Scan & unit_key).fetch1('fps') # get frame rate of scan
@@ -282,8 +282,8 @@ def fetch_oracle_raster(unit_key):
 
     frame_times_set = []
     # iterate over oracle repeats (10 repeats)
-    for first_clip in (nda.Trial & oracle_hashes[0] & unit_key).fetch('trial_idx'): 
-        trial_block_rel = (nda.Trial & unit_key & f'trial_idx >= {first_clip} and trial_idx < {first_clip+6}') # uses the trial_idx of the first clip to grab subsequent 5 clips (trial_block) 
+    for first_clip in (nda.Trial & oracle_hashes[0] & unit_key).fetch('trial_idx'):
+        trial_block_rel = (nda.Trial & unit_key & f'trial_idx >= {first_clip} and trial_idx < {first_clip+6}') # uses the trial_idx of the first clip to grab subsequent 5 clips (trial_block)
         start_times, end_times = trial_block_rel.fetch('start_frame_time', 'end_frame_time', order_by='condition_hash DESC') # grabs start time and end time of each clip in trial_block and orders by condition_hash to maintain order across scans
         frame_times = [np.linspace(s, e , np.round(fps * (e - s)).astype(int)) for s, e in zip(start_times, end_times)] # generate time vector between start and end times according to frame rate of scan
         frame_times_set.append(frame_times)
@@ -309,13 +309,13 @@ def fetch_oracle_raster(unit_key):
 #     vxyz : :class:`numpy.ndarray`
 #         N x 3, the output array in voxels
 #     """
-#     if inverse: 
+#     if inverse:
 #         vxyz = np.zeros_like(xyz).astype(float)
 #         vxyz[:, 0] = (xyz[:, 0] - x_offset) * 4.0
 #         vxyz[:, 1] = (xyz[:, 1] - y_offset) * 4.0
 #         vxyz[:, 2] = (xyz[:, 2] + z_offset) * 40.0
-        
-#     else: 
+
+#     else:
 #         vxyz = np.zeros_like(xyz).astype(float)
 #         vxyz[:, 0] = ((xyz[:, 0] / 4) + x_offset)
 #         vxyz[:, 1] = ((xyz[:, 1] / 4) + y_offset)
